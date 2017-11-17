@@ -1,23 +1,3 @@
-function ShowItLikeYouBuildIt.showarg(io::IO, cv::ChannelView, toplevel=false)
-    T, P = eltype(cv), parent(cv)
-    print(io, "ChannelView(")
-    showarg(io, P)
-    print(io, ')')
-    toplevel && print(io, " with eltype ", T)
-end
-
-Base.summary(A::ChannelView) = summary_build(A)
-
-function ShowItLikeYouBuildIt.showarg(io::IO, cv::ColorView, toplevel=false)
-    C, P = eltype(cv), parent(cv)
-    print(io, "ColorView{", ColorTypes.colorant_string(C), "}(")
-    showarg(io, P)
-    print(io, ')')
-    toplevel && print(io, " with eltype ", C)
-end
-
-Base.summary(A::ColorView) = summary_build(A)
-
 if VERSION < v"0.7.0-DEV.1790"
     function ShowItLikeYouBuildIt.showarg(io::IO, A::PermutedDimsArray{T,N,perm}) where {T,N,perm}
         print(io, "PermutedDimsArray(")

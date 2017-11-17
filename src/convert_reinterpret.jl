@@ -3,35 +3,37 @@
 @pure samesize(::Type{T}, ::Type{S}) where {T,S} = sizeof(T) == sizeof(S)
 
 ## Color->Color
-function Base.reinterpret(::Type{CV1}, a::Array{CV2,1}) where {CV1<:Colorant,CV2<:Colorant}
-    CV = ccolor(CV1, CV2)
-    l = (length(a)*sizeof(CV2))÷sizeof(CV1)
-    l*sizeof(CV1) == length(a)*sizeof(CV2) || throw(ArgumentError("sizes are incommensurate"))
-    reinterpret(CV, a, (l,))
-end
-function Base.reinterpret(::Type{CV1}, a::Array{CV2}) where {CV1<:Colorant,CV2<:Colorant}
+# function reinterpretc(::Type{CV1}, a::Array{CV2,1}) where {CV1<:Colorant,CV2<:Colorant}
+#     CV = ccolor(CV1, CV2)
+#     l = (length(a)*sizeof(CV2))÷sizeof(CV1)
+#     l*sizeof(CV1) == length(a)*sizeof(CV2) || throw(ArgumentError("sizes are incommensurate"))
+#     reshape(reinterpret(CV, a), (l,))
+# end
+function reinterpretc(::Type{CV1}, a::AbstractArray{CV2}) where {CV1<:Colorant,CV2<:Colorant}
     CV = ccolor(CV1, CV2)
     if samesize(CV, CV2)
-        return reinterpret(CV, a, size(a))
+        return reshape(reinterpret(CV, a), size(a))
     end
     throw(ArgumentError("result shape not specified"))
 end
 
 ## Color->T
-function Base.reinterpret(::Type{T}, a::Array{CV,1}) where {T<:Number,CV<:Colorant}
-    l = (length(a)*sizeof(CV))÷sizeof(T)
-    l*sizeof(T) == length(a)*sizeof(CV) || throw(ArgumentError("sizes are incommensurate"))
-    reinterpret(T, a, (l,))
-end
-function Base.reinterpret(::Type{T}, a::Array{CV}) where {T<:Number,CV<:Colorant}
+# function reinterpretc(::Type{T}, a::Array{CV,1}) where {T<:Number,CV<:Colorant}
+#     l = (length(a)*sizeof(CV))÷sizeof(T)
+#     l*sizeof(T) == length(a)*sizeof(CV) || throw(ArgumentError("sizes are incommensurate"))
+#     reshape(reinterpret(T, a), (l,))
+# end
+function reinterpretc(::Type{T}, a::AbstractArray{CV}) where {T<:Number,CV<:Colorant}
     if samesize(T, CV)
-        return reinterpret(T, a, size(a))
+        return reinterpret(T, a)
     end
     if sizeof(CV) == sizeof(T)*_len(CV)
-        return reinterpret(T, a, (_len(CV), size(a)...))
+        return reshape(reinterpret(T, a), (_len(CV), size(a)...))
     end
     throw(ArgumentError("result shape not specified"))
 end
+reinterpretc(::Type{T}, a::AbstractArray{CV,0}) where {T<:Number,CV<:Colorant} =
+    reinterpret(T, reshape(a, 1))
 
 _len(::Type{C}) where {C} = _len(C, eltype(C))
 _len(::Type{C}, ::Type{Any}) where {C} = error("indeterminate type")
@@ -39,21 +41,21 @@ _len(::Type{C}, ::Type{T}) where {C,T} = sizeof(C) ÷ sizeof(T)
 
 ## T->Color
 # We have to distinguish two forms of call:
-#   form 1: reinterpret(RGB{N0f8}, img)
-#   form 2: reinterpret(RGB, img)
-function Base.reinterpret(::Type{CV}, a::Array{T,1}) where {CV<:Colorant,T<:Number}
+#   form 1: reinterpretc(RGB{N0f8}, img)
+#   form 2: reinterpretc(RGB, img)
+function reinterpretc(::Type{CV}, a::AbstractArray{T,1}) where {CV<:Colorant,T<:Number}
     CVT = ccolor_number(CV, T)
     l = (length(a)*sizeof(T))÷sizeof(CVT)
     l*sizeof(CVT) == length(a)*sizeof(T) || throw(ArgumentError("sizes are incommensurate"))
-    reinterpret(CVT, a, (l,))
+    reshape(reinterpret(CVT, a), (l,))
 end
-function Base.reinterpret(::Type{CV}, a::Array{T}) where {CV<:Colorant,T<:Number}
+function reinterpretc(::Type{CV}, a::AbstractArray{T}) where {CV<:Colorant,T<:Number}
     CVT = ccolor_number(CV, T)
     if samesize(CVT, T)
-        return reinterpret(CVT, a, size(a))
+        return reinterpret(CVT, a)
     end
     if size(a, 1)*sizeof(T) == sizeof(CVT)
-        return reinterpret(CVT, a, tail(size(a)))
+        return reshape(reinterpret(CVT, a), tail(size(a)))
     end
     throw(ArgumentError("result shape not specified"))
 end
@@ -64,6 +66,19 @@ ccolor_number(::Type{CV}, ::Type{T}) where {CV<:Colorant,T<:Number} =
 ccolor_number(::Type{CV}, ::Type{CVT}, ::Type{T}) where {CV,CVT<:Number,T} = CV # form 1
 ccolor_number(::Type{CV}, ::Type{Any}, ::Type{T}) where {CV<:Colorant,T} = CV{T} # form 2
 
+function Base.IndexStyle(::Type{Base.ReinterpretArray{T,N,S,A}}) where {T<:Number,N,S<:AbstractGray,A}
+    if samesize(T, S)
+        return IndexStyle(A)
+    end
+    IndexCartesian()
+end
+
+function Base.IndexStyle(::Type{Base.ReinterpretArray{T,N,S,A}}) where {T<:AbstractGray,N,S<:Number,A}
+    if samesize(T, S)
+        return IndexStyle(A)
+    end
+    IndexCartesian()
+end
 
 ### convert
 #
