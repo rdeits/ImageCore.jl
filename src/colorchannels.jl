@@ -1,3 +1,48 @@
+# Create a special type for permutations. The real point here is to be able to
+# unambiguously identify an RRPermArray (see below) so that we may "unwrap" in
+# expressions like `channelview(colorview(C, A))`.
+
+"""
+ColorChanPerm(perm)
+
+Construct a reordering permutation for the color channel.
+This handles swaps between memory layout and constructor argument order for `AbstractRGB` and
+various `AlphaChannel` and `ChannelAlpha` color types.
+"""
+struct ColorChanPerm{N} <: AbstractVector{Int}
+    perm::NTuple{N,Int}
+end
+Base.IndexStyle(::Type{<:ColorChanPerm}) = IndexLinear()
+Base.size(v::ColorChanPerm{N}) where N = (N,)
+Base.getindex(v::ColorChanPerm, i::Int) = v.perm[i]
+
+dimorder(::Type{<:RGB}) = ColorChanPerm((1, 2, 3))
+dimorder(::Type{<:BGR}) = ColorChanPerm((3, 2, 1))
+dimorder(::Type{<:RGB1}) = ColorChanPerm((1, 1, 2, 3))
+dimorder(::Type{<:RGB4}) = ColorChanPerm((1, 2, 3, 3)) # this causes problems for setindex!, fixed below
+dimorder(::Type{<:BGRA}) = ColorChanPerm((3, 2, 1, 4))
+dimorder(::Type{<:ABGR}) = ColorChanPerm((4, 3, 2, 1))
+dimorder(::Type{<:AlphaColor{<:Color1,T,N}}) where {T,N} = ColorChanPerm((2, 1))
+dimorder(::Type{<:AlphaColor{<:Color3,T,N}}) where {T,N} = ColorChanPerm((4, 1, 2, 3))
+
+const ColorChanPermIndexType{NC} = Tuple{<:ColorChanPerm,Vararg{<:Base.Slice,NC}}
+const ColorChanPermSubArray{T,N,P,I<:ColorChanPermIndexType,L} =
+    SubArray{T,N,P,I,L}
+const RRPermArray{To,From,N,M,P<:ColorChanPermSubArray} =
+    RRArray{To,From,N,M,P}
+
+# This type exists solely to set multiple values in the color channel axis
+struct NVector{T,N} <: AbstractVector{T}
+    v::NTuple{N,T}
+end
+Base.IndexStyle(::Type{<:NVector}) = IndexLinear()
+Base.size(v::NVector{T,N}) where {T,N} = (N,)
+Base.getindex(v::NVector, i::Int) = v.v[i]
+NVector(x::Vararg{T,N}) where {T,N} = NVector{T,N}(x)
+
+@inline Base.setindex!(A::RRPermArray{<:RGB4,<:Number,N}, val::AbstractRGB, i::Vararg{Int,N}) where N =
+    setindex!(parent(parent(parent(A))), NVector(red(val), green(val), blue(val)), :, i...)
+
 """
     channelview(A)
 
@@ -14,6 +59,7 @@ img = rand(RGB{N0f8}, 10, 10)
 A = channelview(img)   # a 3×10×10 array
 """
 channelview(A::AbstractArray{T}) where {T<:Number} = A
+channelview(A::RRPermArray{<:Colorant,<:Number}) = parent(parent(parent(A)))
 channelview(A::RRArray{<:Colorant,<:Number}) = parent(parent(A))
 channelview(A::Base.ReinterpretArray{<:AbstractGray,M,<:Number}) where M = parent(A)
 channelview(A::AbstractArray{RGB{T}}) where {T} = reinterpretc(T, A)
@@ -53,6 +99,8 @@ img = colorview(RGB, A)
 """
 colorview(::Type{C}, A::AbstractArray{T}) where {C<:Colorant,T<:Number} =
     _ccolorview(ccolor_number(C, T), A)
+_ccolorview(::Type{C}, A::RRPermArray{T,C}) where {C<:Colorant,T<:Number} =
+    parent(parent(parent(A)))
 _ccolorview(::Type{C}, A::RRArray{T,C}) where {C<:Colorant,T<:Number} =
     parent(parent(A))
 _ccolorview(::Type{C}, A::Base.ReinterpretArray{T,M,C}) where {C<:AbstractGray,T<:Number,M} =
@@ -61,17 +109,17 @@ _ccolorview(::Type{C}, A::AbstractArray{T}) where {C<:Colorant,T<:Number} =
     __ccolorview(C, A)  # necessary to avoid ambiguities from dispatch on eltype
 __ccolorview(::Type{C}, A::AbstractArray{T}) where {T<:Number,C<:RGB{T}} = reinterpretc(C, A)
 __ccolorview(::Type{C}, A::AbstractArray{T}) where {T<:Number,C<:AbstractRGB} =
-    reinterpret(C, view(A, dimorder(C), Base.tail(colons(A))...))
+    reinterpretc(C, view(A, dimorder(C), Base.tail(colons(A))...))
 __ccolorview(::Type{C}, A::AbstractArray{T}) where {T<:Number,C<:Color{T}} = reinterpretc(C, A)
 __ccolorview(::Type{C}, A::AbstractArray{T}) where {T<:Number,C<:ColorAlpha} =
     _colorviewalpha(base_color_type(C), C, eltype(C), A)
 __ccolorview(::Type{C}, A::AbstractArray{T}) where {T<:Number,C<:AlphaColor} =
     reinterpretc(C, view(A, dimorder(C), Base.tail(colons(A))...))
-_colorviewalpha(::Type{C}, ::Type{CA}, ::Type{T}, A::Array{T}) where {C<:RGB,CA,T} =
+_colorviewalpha(::Type{C}, ::Type{CA}, ::Type{T}, A::AbstractArray{T}) where {C<:RGB,CA,T} =
     reinterpretc(CA, A)
-_colorviewalpha(::Type{C}, ::Type{CA}, ::Type, A::Array) where {C<:AbstractRGB,CA} =
-    reinterpretc(C, view(A, dimorder(C), Base.tail(colons(A))...))
-_colorviewalpha(::Type{C}, ::Type{CA}, ::Type{T}, A::Array{T}) where {C<:Color,CA,T} =
+_colorviewalpha(::Type{C}, ::Type{CA}, ::Type{T}, A::AbstractArray{T}) where {C<:AbstractRGB,CA,T} =
+    reinterpretc(CA, view(A, dimorder(CA), Base.tail(colons(A))...))
+_colorviewalpha(::Type{C}, ::Type{CA}, ::Type{T}, A::AbstractArray{T}) where {C<:Color,CA,T} =
     reinterpretc(CA, A)
 
 colorview(::Type{ARGB32}, A::AbstractArray{BGRA{N0f8}}) = reinterpret(ARGB32, A)
@@ -80,14 +128,6 @@ colorview(::Type{C1}, A::AbstractArray{C2}) where {C1<:Colorant,C2<:Colorant} =
     colorview(C1, channelview(A))
 
 colons(A::AbstractArray{T,N}) where {T,N} = ntuple(d->Colon(), Val(N))
-dimorder(::Type{<:RGB}) = 1:3
-dimorder(::Type{<:BGR}) = 3:-1:1
-dimorder(::Type{<:RGB1}) = 2:4
-dimorder(::Type{<:RGB4}) = 1:3
-dimorder(::Type{<:BGRA}) = [3,2,1,4]
-dimorder(::Type{<:ABGR}) = 4:-1:1
-dimorder(::Type{<:AlphaColor{<:Color3,T,N}}) where {T,N} = [2,3,4,1]
-dimorder(::Type{<:AlphaColor{<:Color1,T,N}}) where {T,N} = 2:-1:1
 
 """
     colorview(C, gray1, gray2, ...) -> imgC

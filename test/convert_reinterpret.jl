@@ -1,5 +1,5 @@
 using ImageCore, Colors, FixedPointNumbers, OffsetArrays
-using Base.Test
+using Test
 
 @testset "reinterpret" begin
     # Gray
@@ -128,16 +128,10 @@ using Base.Test
     @test colorview(ARGB32, a) == reinterpretc(ARGB32, [0xf0884422,0x04030201])
 
     # indeterminate type tests
-    a = Array{RGB{AbstractFloat}}(3)
+    a = Array{RGB{AbstractFloat}}(uninitialized, 3)
     @test_throws ErrorException reinterpretc(Float64, a)
-    if VERSION < v"0.7.0-DEV"
-        Tu = TypeVar(:T)
-        a = Array{RGB{Tu}}(3)
-        @test_throws ErrorException reinterpretc(Float64, a)
-    else
-        a = Vector{RGB}(3)
-        @test_throws ErrorException reinterpretc(Float64, a)
-    end
+    a = Vector{RGB}(uninitialized, 3)
+    @test_throws ErrorException reinterpretc(Float64, a)
 
     # Invalid conversions
     a = rand(UInt8, 4,5)

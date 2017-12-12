@@ -1,8 +1,11 @@
 module ImageCoreTests
 
-using ImageCore, Base.Test
+using ImageCore, Test
 
-@test isempty(detect_ambiguities(ImageCore, Base, Core))
+# If we've run the tests previously, there might be ambiguities from other packages
+if !Base.root_module_exists(:StatsBase)
+    @test isempty(detect_ambiguities(ImageCore, Base, Core))
+end
 
 include("colorchannels.jl")
 include("views.jl")

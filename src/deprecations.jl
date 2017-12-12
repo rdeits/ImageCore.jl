@@ -1,5 +1,7 @@
 Base.@deprecate_binding ChannelView channelview
 
+export ColorView
+
 struct ColorView{C<:Colorant,N,A<:AbstractArray} <: AbstractArray{C,N}
     parent::A
 
@@ -11,7 +13,10 @@ struct ColorView{C<:Colorant,N,A<:AbstractArray} <: AbstractArray{C,N}
         colorview(C, A)
     end
 end
+
 function ColorView{C}(A::AbstractArray) where C<:Colorant
     Base.depwarn("ColorView{C}(A) is deprecated, use colorview(C, A)", :ColorView)
     colorview(C, A)
 end
+
+ColorView(parent::AbstractArray) = error("must specify the colortype, use colorview(C, A)")

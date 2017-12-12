@@ -28,7 +28,8 @@ function reinterpretc(::Type{T}, a::AbstractArray{CV}) where {T<:Number,CV<:Colo
         return reinterpret(T, a)
     end
     if sizeof(CV) == sizeof(T)*_len(CV)
-        return reshape(reinterpret(T, a), (_len(CV), size(a)...))
+        inds = indices(a)
+        return reshape(reinterpret(T, a), (convert(typeof(inds[1]), Base.OneTo(_len(CV))), inds...))
     end
     throw(ArgumentError("result shape not specified"))
 end
@@ -50,14 +51,17 @@ function reinterpretc(::Type{CV}, a::AbstractArray{T,1}) where {CV<:Colorant,T<:
     reshape(reinterpret(CVT, a), (l,))
 end
 function reinterpretc(::Type{CV}, a::AbstractArray{T}) where {CV<:Colorant,T<:Number}
+    @noinline throwdm(::Type{C}, ind1) where C =
+        throw(DimensionMismatch("indices $ind1 are not consistent with color type $C"))
     CVT = ccolor_number(CV, T)
     if samesize(CVT, T)
         return reinterpret(CVT, a)
     end
-    if size(a, 1)*sizeof(T) == sizeof(CVT)
-        return reshape(reinterpret(CVT, a), tail(size(a)))
+    inds = indices(a)
+    if inds[1] == Base.OneTo(sizeof(CVT) ÷ sizeof(eltype(CVT)))
+        return reshape(reinterpret(CVT, a), tail(inds))
     end
-    throw(ArgumentError("result shape not specified"))
+    throwdm(CV, inds[1])
 end
 
 # ccolor_number converts form 2 calls to form 1 calls
@@ -66,19 +70,19 @@ ccolor_number(::Type{CV}, ::Type{T}) where {CV<:Colorant,T<:Number} =
 ccolor_number(::Type{CV}, ::Type{CVT}, ::Type{T}) where {CV,CVT<:Number,T} = CV # form 1
 ccolor_number(::Type{CV}, ::Type{Any}, ::Type{T}) where {CV<:Colorant,T} = CV{T} # form 2
 
-function Base.IndexStyle(::Type{Base.ReinterpretArray{T,N,S,A}}) where {T<:Number,N,S<:AbstractGray,A}
-    if samesize(T, S)
-        return IndexStyle(A)
-    end
-    IndexCartesian()
-end
+# function Base.IndexStyle(::Type{Base.ReinterpretArray{T,N,S,A}}) where {T<:Number,N,S<:AbstractGray,A}
+#     if samesize(T, S)
+#         return IndexStyle(A)
+#     end
+#     IndexCartesian()
+# end
 
-function Base.IndexStyle(::Type{Base.ReinterpretArray{T,N,S,A}}) where {T<:AbstractGray,N,S<:Number,A}
-    if samesize(T, S)
-        return IndexStyle(A)
-    end
-    IndexCartesian()
-end
+# function Base.IndexStyle(::Type{Base.ReinterpretArray{T,N,S,A}}) where {T<:AbstractGray,N,S<:Number,A}
+#     if samesize(T, S)
+#         return IndexStyle(A)
+#     end
+#     IndexCartesian()
+# end
 
 ### convert
 #
@@ -99,7 +103,7 @@ end
 
 function Base.convert(::Type{Array{Cdest,n}},
                       img::AbstractArray{Csrc,n}) where {Cdest<:Colorant,n,Csrc<:Colorant}
-    copy!(Array{ccolor(Cdest, Csrc)}(size(img)), img)
+    copy!(Array{ccolor(Cdest, Csrc)}(uninitialized, size(img)), img)
 end
 
 function Base.convert(::Type{Array{Cdest}},
@@ -114,12 +118,12 @@ end
 
 function Base.convert(::Type{Array{Cdest,n}},
                       img::BitArray{n}) where {Cdest<:Color1,n}
-    copy!(Array{ccolor(Cdest, Gray{Bool})}(size(img)), img)
+    copy!(Array{ccolor(Cdest, Gray{Bool})}(uninitialized, size(img)), img)
 end
 
 function Base.convert(::Type{Array{Cdest,n}},
                       img::AbstractArray{T,n}) where {Cdest<:Color1,n,T<:Real}
-    copy!(Array{ccolor(Cdest, Gray{T})}(size(img)), img)
+    copy!(Array{ccolor(Cdest, Gray{T})}(uninitialized, size(img)), img)
 end
 
 # for docstrings in the operations below
@@ -140,7 +144,7 @@ for (fn,T) in (#(:float16, Float16),   # Float16 currently has promotion problem
         ($fn)(::Type{S}) where {S<:Number  } = $T
         ($fn)(c::Colorant) = convert(($fn)(typeof(c)), c)
         ($fn)(n::Number)   = convert(($fn)(typeof(n)), n)
-        @deprecate ($fn){C<:Colorant}(A::AbstractArray{C}) ($fn).(A)
+        @deprecate ($fn)(A::AbstractArray{C}) where {C<:Colorant} ($fn).(A)
         fname = $(Expr(:quote, fn))
         Tname = shortname($T)
 @doc """
